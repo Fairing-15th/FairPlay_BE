@@ -76,4 +76,19 @@ public class BoothApplicationServiceImpl implements BoothApplicationService {
         application.setAdminComment(dto.getAdminComment());
         application.setStatusUpdatedAt(LocalDateTime.now());
     }
+
+    @Override
+    public void updatePaymentStatus(Long id, BoothPaymentStatusUpdateDto dto) {
+        BoothApplication booth = boothApplicationRepository.findById(id)
+                .orElseThrow(() -> new EntityNotFoundException("부스 신청 정보를 찾을 수 없습니다."));
+
+        BoothPaymentStatusCode statusCode = paymentCodeRepository
+                .findByCode(dto.getPaymentStatusCode())
+                .orElseThrow(() -> new IllegalArgumentException("유효하지 않은 결제 상태 코드입니다."));
+
+        booth.setBoothPaymentStatusCode(statusCode);
+        booth.setAdminComment(dto.getAdminComment());  // 관리자 사유 기록
+        booth.setStatusUpdatedAt(LocalDateTime.now()); // 상태 변경 시간 기록
+    }
+
 }

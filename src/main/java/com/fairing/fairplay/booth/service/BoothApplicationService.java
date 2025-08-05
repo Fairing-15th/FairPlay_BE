@@ -12,4 +12,6 @@ public interface BoothApplicationService {
     BoothApplicationResponseDto getBoothApplication(Long id);
 
     void updateStatus(Long id, BoothApplicationStatusUpdateDto dto);
+    void updatePaymentStatus(Long id, BoothPaymentStatusUpdateDto dto);
+
 }
