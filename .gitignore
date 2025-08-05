@@ -71,3 +71,6 @@ yarn-error.log*
 
 # === 예시 환경파일(필요시) ===
 # !.env.example
+
+# .gitignore
+/src/main/generated/
