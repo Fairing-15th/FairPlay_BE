@@ -1,4 +1,4 @@
-package com.fairing.fairplay.qr.dto.scan;
+package com.fairing.fairplay.qr.dto;
 
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -11,8 +11,8 @@ import lombok.Setter;
 @Builder
 @AllArgsConstructor
 @NoArgsConstructor
-public class GuestManualCheckRequestDto {
+public class MemberQrCheckInRequestDto {
 
-  private String qrLinkToken;
-  private String manualCode;
+  private Long reservationId;
+  private String qrCode;
 }
