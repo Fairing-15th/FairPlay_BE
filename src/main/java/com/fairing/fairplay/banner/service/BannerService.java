@@ -60,13 +60,6 @@ public class BannerService {
         BannerStatusCode statusCode = getStatusCodeOr404(dto.getStatusCode());
         BannerType bannerType = getBannerTypeOr404(dto.getBannerTypeId());
 
-        // ★ MD_PICK 하나만 유지: 신규가 MD_PICK + ACTIVE로 들어오면 기존 ACTIVE 전부 INACTIVE
-        if (TYPE_MD_PICK.equals(bannerType.getCode()) && STATUS_ACTIVE.equals(statusCode.getCode())) {
-            BannerStatusCode inactive = getStatusCodeOr404(STATUS_INACTIVE);
-            bannerRepository.deactivateAllActiveByType(TYPE_MD_PICK, STATUS_ACTIVE, inactive);
-        }
-
-
         Banner banner = new Banner(
                 dto.getTitle(),
                 finalImageUrl,
@@ -81,6 +74,12 @@ public class BannerService {
         banner.setCreatedBy(adminId);
 
         Banner saved = bannerRepository.save(banner);
+
+        if (TYPE_MD_PICK.equals(bannerType.getCode()) && STATUS_ACTIVE.equals(statusCode.getCode())) {
+            BannerStatusCode inactive = getStatusCodeOr404(STATUS_INACTIVE);
+            bannerRepository.deactivateOthersActiveByType(TYPE_MD_PICK, STATUS_ACTIVE, inactive, saved.getId());
+        }
+
         logBannerAction(saved, adminId, ACTION_CREATE);
         return toDto(saved);
     }
@@ -116,7 +115,7 @@ public class BannerService {
         );
         banner.updateStatus(statusCode);
 
-// ★ MD_PICK 하나만 유지: 결과가 MD_PICK + ACTIVE면 자기 자신 제외 모두 INACTIVE
+// MD_PICK 하나만 유지: 결과가 MD_PICK + ACTIVE면 자기 자신 제외 모두 INACTIVE
         if (TYPE_MD_PICK.equals(banner.getBannerType().getCode())
                 && STATUS_ACTIVE.equals(banner.getBannerStatusCode().getCode())) {
             BannerStatusCode inactive = getStatusCodeOr404(STATUS_INACTIVE);
