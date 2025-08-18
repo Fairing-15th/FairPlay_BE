@@ -85,4 +85,20 @@ public interface BannerRepository extends JpaRepository<Banner, Long> {
     boolean existsByBannerType_CodeAndEventIdAndBannerStatusCode_Code(
             String typeCode, Long eventId, String statusCode
     );
+
+    // MD_PICK 활성 개수 카운트
+    long countByBannerType_CodeAndBannerStatusCode_Code(
+            String typeCode, String statusCode
+    );
+
+    // MD_PICK 활성 목록 (우선순위 오름차순) — 초과 시 꼬리 자르기에 사용
+    List<Banner> findAllByBannerType_CodeAndBannerStatusCode_CodeOrderByPriorityAsc(
+            String typeCode, String statusCode
+    );
+
+    // (업데이트 상황용) 자신 제외하고 활성 목록 (우선순위 오름차순)
+    List<Banner> findAllByBannerType_CodeAndBannerStatusCode_CodeAndIdNotOrderByPriorityAsc(
+            String typeCode, String statusCode, Long excludeId
+    );
+
 }

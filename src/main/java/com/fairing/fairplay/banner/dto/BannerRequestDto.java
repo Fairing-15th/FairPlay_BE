@@ -28,7 +28,6 @@ public class BannerRequestDto {
 
     @NotNull
     private Long bannerTypeId;
-    private boolean hot;
-    private boolean mdPick;
+
 
 }

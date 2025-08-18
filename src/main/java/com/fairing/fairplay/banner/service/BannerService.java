@@ -43,6 +43,7 @@ public class BannerService {
     private final BannerTypeRepository bannerTypeRepository;
     private final EventRepository eventRepository;
 
+
     @Value("${cloud.aws.s3.banner-dir:banner}")
     private String bannerDir;
 
@@ -79,9 +80,9 @@ public class BannerService {
         Banner saved = bannerRepository.save(banner);
 
         if (TYPE_MD_PICK.equals(bannerType.getCode()) && STATUS_ACTIVE.equals(statusCode.getCode())) {
-            BannerStatusCode inactive = getStatusCodeOr404(STATUS_INACTIVE);
-            bannerRepository.deactivateOthersActiveByType(TYPE_MD_PICK, STATUS_ACTIVE, inactive, saved.getId());
+            enforceMdPickMaxActive(2, adminId);
         }
+
 
         String finalImageUrl = resolveImageUrlForCreate(dto, saved.getId());
         saved.setImageUrl(finalImageUrl);
@@ -117,20 +118,16 @@ public class BannerService {
                 dto.getTitle(),
                 finalImageUrl,
                 dto.getLinkUrl(),
-                dto.getStartDate(),
-                dto.getEndDate(),
+                newStart,
+                newEnd,
                 dto.getPriority(),
                 bannerType
         );
         banner.updateStatus(statusCode);
 
-// MD_PICK 하나만 유지: 결과가 MD_PICK + ACTIVE면 자기 자신 제외 모두 INACTIVE
         if (TYPE_MD_PICK.equals(banner.getBannerType().getCode())
                 && STATUS_ACTIVE.equals(banner.getBannerStatusCode().getCode())) {
-            BannerStatusCode inactive = getStatusCodeOr404(STATUS_INACTIVE);
-            bannerRepository.deactivateOthersActiveByType(
-                    TYPE_MD_PICK, STATUS_ACTIVE, inactive, banner.getId()
-            );
+            enforceMdPickMaxActive(2, adminId);
         }
 
         logBannerAction(banner, adminId, ACTION_UPDATE);
@@ -145,13 +142,28 @@ public class BannerService {
         banner.updateStatus(statusCode);
         logBannerAction(banner, adminId, ACTION_UPDATE);
 
-        //  MD_PICK을 ACTIVE로 바꾸면, 자신 제외 모두 INACTIVE
         if (TYPE_MD_PICK.equals(banner.getBannerType().getCode())
                 && STATUS_ACTIVE.equals(statusCode.getCode())) {
-            BannerStatusCode inactive = getStatusCodeOr404(STATUS_INACTIVE);
-            bannerRepository.deactivateOthersActiveByType(
-                    TYPE_MD_PICK, STATUS_ACTIVE, inactive, banner.getId()
-            );
+            enforceMdPickMaxActive(2, adminId);
+        }
+
+    }
+
+    private void enforceMdPickMaxActive(int maxKeep,  Long adminId){
+        // 우선순위 오름차순 기준: 작은 priority가 더 상위라고 가정
+        List<Banner> actives = bannerRepository
+                .findAllByBannerType_CodeAndBannerStatusCode_CodeOrderByPriorityAsc(TYPE_MD_PICK, STATUS_ACTIVE);
+
+        if (actives.size() <= maxKeep) return;
+
+        BannerStatusCode inactive = getStatusCodeOr404(STATUS_INACTIVE);
+
+        // 상위 maxKeep만 남기고 꼬리부터 INACTIVE
+        for (int i = maxKeep; i < actives.size(); i++) {
+            Banner toDeactivate = actives.get(i);
+            toDeactivate.updateStatus(inactive);
+            // 필요하면 이력 남김
+            logBannerAction(toDeactivate, adminId, ACTION_UPDATE);
         }
     }
 
@@ -254,6 +266,7 @@ public class BannerService {
 
         bannerLogRepository.save(log);
     }
+
 
     private Banner getBannerOr404(Long id) {
         return bannerRepository.findById(id)
