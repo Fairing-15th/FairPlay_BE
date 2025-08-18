@@ -15,6 +15,7 @@ import com.fairing.fairplay.file.service.FileService;
 import com.fairing.fairplay.user.entity.BoothAdmin;
 import com.fairing.fairplay.user.entity.UserRoleCode;
 import com.fairing.fairplay.user.entity.Users;
+import com.fairing.fairplay.user.repository.BoothAdminRepository;
 import com.fairing.fairplay.user.repository.UserRepository;
 import com.fairing.fairplay.user.repository.UserRoleCodeRepository;
 import jakarta.persistence.EntityNotFoundException;
