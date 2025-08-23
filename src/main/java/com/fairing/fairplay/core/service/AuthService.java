@@ -3,6 +3,7 @@ package com.fairing.fairplay.core.service;
 import com.fairing.fairplay.common.exception.CustomException;
 import com.fairing.fairplay.core.dto.LoginRequest;
 import com.fairing.fairplay.core.dto.LoginResponse;
+import com.fairing.fairplay.core.dto.SessionInfo;
 import com.fairing.fairplay.core.util.JwtTokenProvider;
 import com.fairing.fairplay.user.entity.Users;
 import com.fairing.fairplay.user.entity.UserRoleCode;
@@ -26,6 +27,7 @@ public class AuthService {
     private final PasswordEncoder passwordEncoder;
     private final JwtTokenProvider jwtTokenProvider;
     private final RefreshTokenService refreshTokenService;
+    private final SessionService sessionService;
 
     private final String kakaoClientId;
     private final String kakaoRedirectUri;
@@ -37,6 +39,7 @@ public class AuthService {
             PasswordEncoder passwordEncoder,
             JwtTokenProvider jwtTokenProvider,
             RefreshTokenService refreshTokenService,
+            SessionService sessionService,
             @Value("${kakao.client-id}") String kakaoClientId,
             @Value("${kakao.redirect-uri}") String kakaoRedirectUri,
             @Value("${kakao.client-secret:}") String kakaoClientSecret
@@ -46,12 +49,13 @@ public class AuthService {
         this.passwordEncoder = passwordEncoder;
         this.jwtTokenProvider = jwtTokenProvider;
         this.refreshTokenService = refreshTokenService;
+        this.sessionService = sessionService;
         this.kakaoClientId = kakaoClientId;
         this.kakaoRedirectUri = kakaoRedirectUri;
         this.kakaoClientSecret = kakaoClientSecret;
     }
 
-    // 로그인 + JWT 발급
+    // 로그인 + JWT 발급 (기존 방식 - 호환성 유지)
     public LoginResponse login(LoginRequest request) {
         Users user = userRepository.findByEmail(request.getEmail())
                 .orElse(null);
@@ -82,6 +86,35 @@ public class AuthService {
         );
 
         return new LoginResponse(accessToken, refreshToken);
+    }
+
+    // 로그인 + 세션 생성 (새로운 방식)
+    public String loginWithSession(LoginRequest request, String userAgent, String ipAddress) {
+        Users user = userRepository.findByEmail(request.getEmail())
+                .orElse(null);
+
+        if (user == null || !passwordEncoder.matches(request.getPassword(), user.getPassword())) {
+            throw new CustomException(HttpStatus.UNAUTHORIZED, "이메일 또는 비밀번호가 올바르지 않습니다.");
+        }
+
+        if (user.getDeletedAt() != null) {
+            throw new CustomException(HttpStatus.FORBIDDEN, "탈퇴한 회원입니다.");
+        }
+
+        // 세션 정보 생성
+        SessionInfo sessionInfo = SessionInfo.create(
+                user.getUserId(),
+                user.getEmail(),
+                user.getName(),
+                user.getRoleCode().getCode(),
+                user.getRoleCode().getId(),
+                user.getPhone(),
+                userAgent,
+                ipAddress
+        );
+
+        // 세션 생성 및 ID 반환
+        return sessionService.createSession(sessionInfo);
     }
 
     // 리프레시 토큰 재발급
@@ -240,6 +273,125 @@ public class AuthService {
         );
 
         return new LoginResponse(ourAccessToken, ourRefreshToken);
+    }
+
+    // 카카오 로그인 + 세션 생성 (새로운 방식)
+    public String kakaoLoginWithSession(String code, String userAgent, String ipAddress) {
+        // 1. 카카오 토큰 요청 (기존 로직과 동일)
+        RestTemplate restTemplate = new RestTemplate();
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_FORM_URLENCODED);
+
+        MultiValueMap<String, String> params = new LinkedMultiValueMap<>();
+        params.add("grant_type", "authorization_code");
+        params.add("client_id", kakaoClientId);
+        params.add("redirect_uri", kakaoRedirectUri);
+        params.add("code", code);
+        if (kakaoClientSecret != null && !kakaoClientSecret.isBlank()) {
+            params.add("client_secret", kakaoClientSecret);
+        }
+
+        HttpEntity<MultiValueMap<String, String>> tokenRequest = new HttpEntity<>(params, headers);
+
+        ResponseEntity<String> tokenResponse = restTemplate.postForEntity(
+                "https://kauth.kakao.com/oauth/token",
+                tokenRequest,
+                String.class
+        );
+
+        String accessToken;
+        try {
+            ObjectMapper om = new ObjectMapper();
+            JsonNode node = om.readTree(tokenResponse.getBody());
+            accessToken = node.get("access_token").asText();
+        } catch (Exception e) {
+            throw new CustomException(HttpStatus.UNAUTHORIZED, "카카오 토큰 발급 실패");
+        }
+
+        // 2. 카카오 유저 정보 요청 (기존 로직과 동일)
+        HttpHeaders userInfoHeaders = new HttpHeaders();
+        userInfoHeaders.set("Authorization", "Bearer " + accessToken);
+        HttpEntity<?> userInfoRequest = new HttpEntity<>(userInfoHeaders);
+
+        ResponseEntity<String> userInfoResponse = restTemplate.exchange(
+                "https://kapi.kakao.com/v2/user/me",
+                HttpMethod.GET,
+                userInfoRequest,
+                String.class
+        );
+
+        String kakaoId = null;
+        String nickname = null;
+        String realEmail = null;
+
+        try {
+            ObjectMapper om = new ObjectMapper();
+            JsonNode userNode = om.readTree(userInfoResponse.getBody());
+            kakaoId = userNode.get("id").asText();
+            JsonNode kakaoAccount = userNode.get("kakao_account");
+            if (kakaoAccount != null) {
+                if (kakaoAccount.has("email")) {
+                    realEmail = kakaoAccount.get("email").asText();
+                }
+                if (kakaoAccount.has("profile")) {
+                    nickname = kakaoAccount.get("profile").get("nickname").asText();
+                }
+            }
+        } catch (Exception e) {
+            throw new CustomException(HttpStatus.UNAUTHORIZED, "카카오 유저 정보 파싱 실패");
+        }
+
+        if (kakaoId == null || kakaoId.isBlank()) {
+            throw new CustomException(HttpStatus.UNAUTHORIZED, "카카오 아이디 수신 실패");
+        }
+
+        // 3. 사용자 생성 또는 조회 (기존 로직과 동일)
+        final String userEmail = (realEmail != null && !realEmail.isBlank())
+                ? realEmail
+                : "kakao_" + kakaoId;
+        final String finalNickname = nickname != null ? nickname : "kakaoUser";
+
+        Users user = userRepository.findByEmail(userEmail)
+                .orElseGet(() -> {
+                    UserRoleCode userRole = userRoleCodeRepository.findByCode("COMMON")
+                            .orElseThrow(() -> new CustomException(HttpStatus.INTERNAL_SERVER_ERROR, "기본 권한 코드(COMMON)가 없습니다."));
+                    Users newUser = Users.builder()
+                            .email(userEmail)
+                            .nickname(finalNickname)
+                            .password(passwordEncoder.encode("kakao_social"))
+                            .roleCode(userRole)
+                            .name(finalNickname)
+                            .phone("01000000000")
+                            .build();
+                    userRepository.save(newUser);
+                    return newUser;
+                });
+
+        // 4. 세션 정보 생성 및 세션 생성
+        SessionInfo sessionInfo = SessionInfo.create(
+                user.getUserId(),
+                user.getEmail(),
+                user.getName(),
+                user.getRoleCode().getCode(),
+                user.getRoleCode().getId(),
+                user.getPhone(),
+                userAgent,
+                ipAddress
+        );
+
+        return sessionService.createSession(sessionInfo);
+    }
+
+    // 세션 기반 로그아웃
+    public void logoutSession(String sessionId) {
+        if (sessionId != null && !sessionId.trim().isEmpty()) {
+            sessionService.deleteSession(sessionId);
+        }
+    }
+
+    // 특정 사용자의 모든 세션 로그아웃
+    public void logoutAllUserSessions(Long userId) {
+        sessionService.deleteAllUserSessions(userId);
     }
 
 }

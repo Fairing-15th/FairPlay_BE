@@ -1,6 +1,8 @@
 package com.fairing.fairplay.core.config;
 
 import com.fairing.fairplay.core.security.JwtAuthenticationFilter;
+import com.fairing.fairplay.core.security.SessionAuthenticationFilter;
+import com.fairing.fairplay.core.service.SessionService;
 import com.fairing.fairplay.core.util.JwtTokenProvider;
 import com.fairing.fairplay.user.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
@@ -22,6 +24,7 @@ public class SecurityConfig {
 
         private final JwtTokenProvider jwtTokenProvider;
         private final UserRepository userRepository;
+        private final SessionService sessionService;
 
         @Bean
         public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
@@ -61,6 +64,9 @@ public class SecurityConfig {
                                                                 "/api/auth/login",
                                                                 "/api/auth/logout",
                                                                 "/api/auth/refresh",
+                                                                "/api/auth/session/login",
+                                                                "/api/auth/session/logout",
+                                                                "/api/auth/session/kakao",
                                                                 "/api/events", // GET 행사 목록 조회
                                                                 "/api/events/*/details", // GET 행사 상세 조회 (*/details 패턴)
                                                                 "/api/events/hot-picks", // GET 핫픽 조회
@@ -147,8 +153,11 @@ public class SecurityConfig {
                                                                                         + "\"}");
                                                 }))
                                 .addFilterBefore(
+                                                new SessionAuthenticationFilter(sessionService),
+                                                UsernamePasswordAuthenticationFilter.class)
+                                .addFilterBefore(
                                                 new JwtAuthenticationFilter(jwtTokenProvider, userRepository),
-                                                UsernamePasswordAuthenticationFilter.class);
+                                                SessionAuthenticationFilter.class);
 
                 return http.build();
         }
